@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+
+# Packaged releases
+*.7z
+*.zip
+
+# Misc files in project root
+=1.3.0
+SoloCanvas.lnk
+
+# Clipboard-pasted images
+Images/clipboard_*.png
+
+# Notes content (folder is tracked but contents are private)
+Notes/**
+!Notes/.gitkeep
+
+# Excluded deck content (copyrighted)
+Decks/Mystical Manga Tarot/
+Decks/Wildwood Tarot/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+*.swp
