@@ -338,6 +338,25 @@ User data (sessions, settings) is stored in `%APPDATA%\SoloCanvas\`.
 
 ---
 
+## Screenshots
+
+**Canvas & Notepad** — The main canvas with cards, image objects, and sticky notes, alongside the Notepad open in a split-screen view with a PDF reader.
+![Canvas and Notepad](screenshots/notepad_canvas.png)
+
+**Deck Search** — Browse and reorder cards within a deck or stack, with adjustable thumbnail size, shuffle, split, and reset controls.
+![Deck Search Dialog](screenshots/deck_search.png)
+
+**Dice Bag & Roll Log** — Add custom dice sets to the canvas and review the full roll history in the Roll Log.
+![Dice Bag and Roll Log](screenshots/dice_bag.png)
+
+**Deck Library** — Import and manage your card decks, with sample card previews and one-click canvas placement.
+![Deck Library Dialog](screenshots/deck_library.png)
+
+**Open Session** — Pick up where you left off with thumbnail previews of every saved session.
+![Open Session Dialog](screenshots/open_session.png)
+
+---
+
 ## License
 
 SoloCanvas is free software, distributed under the **GNU General Public License v3.0**.
