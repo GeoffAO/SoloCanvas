@@ -21,6 +21,9 @@ the Notepad uses the raw canvas colour so notes remain easy to read.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from PyQt6.QtGui import QColor
 
 
@@ -55,6 +58,24 @@ def _adj(c: QColor, v_factor: float, s_factor: float = 1.0) -> QColor:
 # Stylesheet builders
 # ---------------------------------------------------------------------------
 
+def _x_svg_path(txt_hex: str) -> str:
+    """Write a themed X SVG for checkbox indicators; return its URL-safe path."""
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11 11">'
+        f'<line x1="2" y1="2" x2="9" y2="9" stroke="{txt_hex}" '
+        f'stroke-width="1.8" stroke-linecap="round"/>'
+        f'<line x1="9" y1="2" x2="2" y2="9" stroke="{txt_hex}" '
+        f'stroke-width="1.8" stroke-linecap="round"/>'
+        f'</svg>'
+    )
+    data_dir = Path(os.environ.get("APPDATA", Path.home())) / "SoloCanvas"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # Include color in filename so Qt doesn't serve a stale cached version
+    p = data_dir / f"checkbox_x_{txt_hex.lstrip('#')}.svg"
+    p.write_text(svg, encoding="utf-8")
+    return str(p).replace("\\", "/")
+
+
 def build_app_stylesheet(panel: QColor) -> str:
     """Full Qt stylesheet applied application-wide when canvas theming is on."""
     txt   = text_color(panel)
@@ -73,6 +94,7 @@ def build_app_stylesheet(panel: QColor) -> str:
     ib = inp.name()
     sl = sel.name()
     ds = dis.name()
+    xp = _x_svg_path(t)
 
     return f"""
 /* ── Base ── */
@@ -229,7 +251,10 @@ QCheckBox::indicator {{
     width: 13px;
     height: 13px;
 }}
-QCheckBox::indicator:checked {{ background-color: {bh}; }}
+QCheckBox::indicator:checked {{
+    background-color: {ib};
+    image: url("{xp}");
+}}
 QRadioButton {{ color: {t}; }}
 QRadioButton::indicator {{
     background-color: {ib};

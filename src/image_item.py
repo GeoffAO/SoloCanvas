@@ -54,24 +54,32 @@ class ImageItem(QGraphicsObject):
     def __init__(
         self,
         image_path: str,
-        w_cells: float = 1.0,
-        h_cells: float = 1.0,
+        w_cells: float | None = None,
+        h_cells: float = 1.2,
         grid_size: int = 40,
         parent=None,
     ):
         super().__init__(parent)
 
-        self._image_path: str     = image_path
-        self._w_cells: float      = max(0.25, w_cells)
+        self._image_path: str = image_path
+        self.grid_size: int   = grid_size
+        self.grid_snap: bool  = True
+        self.hover_preview: bool = True
+        self.locked: bool     = False
+        self.is_anchor: bool  = False
+        self._base_z: float   = _NORMAL_MIN_Z
+
+        self._pixmap: QPixmap = QPixmap(image_path) if image_path else QPixmap()
+        self._aspect_ratio: float = self._compute_aspect_ratio()
+
+        # If width not specified, derive it from aspect ratio so height=h_cells
+        if w_cells is None:
+            w_cells = h_cells * self._aspect_ratio
+
         self._h_cells: float      = max(0.25, h_cells)
+        self._w_cells: float      = max(0.25, w_cells)
         self._orig_w_cells: float = self._w_cells
         self._orig_h_cells: float = self._h_cells
-        self.grid_size: int       = grid_size
-        self.grid_snap: bool      = True
-        self.hover_preview: bool  = True
-        self.locked: bool         = False
-        self.is_anchor: bool      = False
-        self._base_z: float       = _NORMAL_MIN_Z
 
         # Resize drag state
         self._resize_mode: bool       = False
@@ -79,9 +87,6 @@ class ImageItem(QGraphicsObject):
         self._resize_start_pos: QPointF = QPointF()
         self._resize_start_w: float   = self._w_cells
         self._resize_start_h: float   = self._h_cells
-
-        self._pixmap: QPixmap = QPixmap(image_path) if image_path else QPixmap()
-        self._aspect_ratio: float = self._compute_aspect_ratio()
 
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable |

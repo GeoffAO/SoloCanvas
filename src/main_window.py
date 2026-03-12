@@ -704,7 +704,7 @@ class MainWindow(QMainWindow):
         grid_size = self._settings.canvas("grid_size")
         top_left = self._view.mapToScene(QPoint(0, 0))
         default_sz = self._settings.display("image_import_size")
-        item = ImageItem(path, default_sz, default_sz, grid_size)
+        item = ImageItem(path, h_cells=default_sz, grid_size=grid_size)
         item.grid_snap = self._settings.canvas("grid_snap")
         item.setPos(top_left)
         self._connect_image_item(item)
@@ -892,7 +892,7 @@ class MainWindow(QMainWindow):
         """Called when an image file is dropped from Explorer onto the canvas."""
         grid_size = self._settings.canvas("grid_size")
         default_sz = self._settings.display("image_import_size")
-        item = ImageItem(path, default_sz, default_sz, grid_size)
+        item = ImageItem(path, h_cells=default_sz, grid_size=grid_size)
         item.grid_snap = self._settings.canvas("grid_snap")
         if item.grid_snap:
             g = grid_size
@@ -1898,7 +1898,7 @@ class MainWindow(QMainWindow):
 
         self._push_undo()
         self._scene.clearSelection()
-        item = ImageItem(str(dest), default_sz, default_sz, grid_size)
+        item = ImageItem(str(dest), h_cells=default_sz, grid_size=grid_size)
         item.grid_snap = self._settings.canvas("grid_snap")
         if item.grid_snap:
             item.setPos(QPointF(

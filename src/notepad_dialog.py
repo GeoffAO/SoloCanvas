@@ -394,8 +394,7 @@ class NotepadDialog(QDialog):
     def _apply_heading_styles_to_document(self):
         """Re-apply custom heading sizes/bold/underline after a file load or font change."""
         doc = self._editor.document()
-        root_cursor = QTextCursor(doc)
-        root_cursor.beginEditBlock()
+        saved_pos = self._editor.textCursor().position()
         block = doc.begin()
         while block.isValid():
             level = block.blockFormat().headingLevel()
@@ -410,7 +409,11 @@ class NotepadDialog(QDialog):
                 char_fmt.setFontUnderline(self._heading_underline)
                 bc.mergeCharFormat(char_fmt)
             block = block.next()
-        root_cursor.endEditBlock()
+        # Restore cursor — bc.mergeCharFormat leaves Qt's undo system pointing at
+        # the last-touched block, which pushes the visual cursor to the wrong spot.
+        restore = QTextCursor(doc)
+        restore.setPosition(min(saved_pos, max(0, doc.characterCount() - 1)))
+        self._editor.setTextCursor(restore)
 
     def _insert_checkbox(self):
         self._editor.textCursor().insertText(f"- {_CB_UNCHECKED} ")
@@ -486,6 +489,10 @@ class NotepadDialog(QDialog):
             self._editor.setHtml(md_to_html(text, path.parent))
         self._editor.document().setDefaultFont(QFont(self._font_family, self._font_size))
         self._apply_heading_styles_to_document()
+        # Place cursor at start and ensure blink timer is running
+        c = QTextCursor(self._editor.document())
+        c.movePosition(QTextCursor.MoveOperation.Start)
+        self._editor.setTextCursor(c)
         self._editor.document().contentsChanged.connect(self._on_content_changed)
 
     def _save_current(self):
