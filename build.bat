@@ -10,12 +10,50 @@ echo.
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
-:: Use the project's Python installation (Python 3.14 with all dependencies)
-set PYTHON=C:\Users\popes\AppData\Local\Python\bin\python.exe
-set PIP=C:\Users\popes\AppData\Local\Python\bin\pip.exe
+:: Locate Python 3 on PATH
+set PYTHON=
+for %%C in (python3.exe python.exe) do (
+    if not defined PYTHON (
+        for /f "delims=" %%P in ('where %%C 2^>nul') do (
+            if not defined PYTHON (
+                echo %%P | findstr /i "WindowsApps" >nul 2>&1
+                if errorlevel 1 (
+                    for /f "tokens=2 delims= " %%V in ('"%%P" --version 2^>^&1') do (
+                        for /f "tokens=1 delims=." %%M in ("%%V") do (
+                            if "%%M"=="3" set PYTHON=%%P
+                        )
+                    )
+                )
+            )
+        )
+    )
+)
+
+if not defined PYTHON (
+    echo [ERROR] Python 3 not found on PATH.
+    echo.
+    echo Please install Python 3 from https://www.python.org/downloads/
+    echo Make sure to check "Add Python to PATH" during installation.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=2 delims= " %%V in ('"%PYTHON%" --version 2^>^&1') do set PYVER=%%V
+echo Found Python %PYVER%  (%PYTHON%)
+echo.
+
+:: Derive pip from the same directory as python
+for /f "delims=" %%D in ("%PYTHON%") do set PYDIR=%%~dpD
+set PIP=%PYDIR%pip.exe
 
 :: Ensure PyInstaller is installed in the correct Python environment
-%PIP% install --quiet pyinstaller
+echo Installing/verifying PyInstaller...
+%PIP% install pyinstaller
+if errorlevel 1 (
+    echo [ERROR] Failed to install PyInstaller.
+    pause
+    exit /b 1
+)
 
 :: Clean previous build artefacts
 if exist "dist\SoloCanvas" (
@@ -43,6 +81,7 @@ echo.
     --hidden-import "PyQt6.QtPdf" ^
     --hidden-import "PyQt6.QtPdfWidgets" ^
     --collect-all qtawesome ^
+    --collect-all markdown ^
     main.py
 
 if errorlevel 1 (
