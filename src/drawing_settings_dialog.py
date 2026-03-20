@@ -98,6 +98,22 @@ class DrawingSettingsDialog(QDialog):
         if x is not None and y is not None:
             self.move(int(x), int(y))
 
+    def refresh_from_settings(self) -> None:
+        """Refresh widget values from the current SettingsManager values.
+
+        Used when a right-click "Customize…" opens this dialog for existing shapes.
+        """
+        self.blockSignals(True)
+        try:
+            self._stroke_spin.setValue(self._settings.drawing("stroke_width"))
+            self._apply_btn_color(self._stroke_btn, self._settings.drawing("stroke_color"))
+            self._apply_btn_color(self._fill_btn, self._settings.drawing("fill_color"))
+            self._opacity_slider.setValue(self._settings.drawing("fill_opacity"))
+            self._opacity_label.setText(f"{self._settings.drawing('fill_opacity')}%")
+            self._snap_chk.setChecked(bool(self._settings.drawing("snap_to_grid")))
+        finally:
+            self.blockSignals(False)
+
     # ------------------------------------------------------------------
     # Public accessors (read current live values)
     # ------------------------------------------------------------------

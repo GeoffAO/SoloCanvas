@@ -2186,8 +2186,16 @@ class RollLogDialog(QDialog):
             if len(dice) == 1:
                 d = dice[0]
                 text = f"[{time_str}]  {d['type']} → {d['value']}"
+                color_name = d.get("color_name")
+                if color_name:
+                    text += f"  [{color_name}]"
             else:
-                parts = " + ".join(f"{d['type']}({d['value']})" for d in dice)
+                def _fmt_die(die: dict) -> str:
+                    c = die.get("color_name")
+                    base = f"{die['type']}({die['value']})"
+                    return f"{base}[{c}]" if c else base
+
+                parts = " + ".join(_fmt_die(d) for d in dice)
                 text = f"[{time_str}]  {parts}  =  {total}"
             self._list.addItem(text)
 

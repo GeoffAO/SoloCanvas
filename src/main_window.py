@@ -49,7 +49,7 @@ from .drawing_item import DrawingStrokeItem, DrawingShapeItem, make_smooth_path
 from .drawing_settings_dialog import DrawingSettingsDialog
 from .image_item     import ImageItem
 from .die_item       import DieItem
-from .dice_manager   import DiceSetsManager
+from .dice_manager   import DiceSet, DiceSetsManager
 from .hand_widget    import HandWidget, _HAND_MARGIN_BOTTOM
 from .models         import CardData, DeckModel
 from .session_manager  import SessionManager
@@ -215,6 +215,8 @@ class MainWindow(QMainWindow):
         self._active_draw_shape  = None           # live DrawingShapeItem during shape drag
         self._draw_start_pos     = None           # QPointF where current shape drag started
         self._draw_settings_dlg  = None           # DrawingSettingsDialog (non-modal, persistent)
+        self._apply_draw_settings_to_selection = False
+        self._draw_customize_needs_undo = False
 
         # Measurement tool
         self._active_measurement: Optional[MeasurementItem] = None  # item being drawn
@@ -970,6 +972,8 @@ class MainWindow(QMainWindow):
         di.delete_selected_requested.connect(self._delete_selected)
         di.duplicate_requested.connect(self._on_die_duplicate)
         di.rolled.connect(self._on_die_rolled)
+        di.roll_group_requested.connect(self._on_die_group_rolled)
+        di.accent_apply_requested.connect(self._on_die_accent_apply_requested)
 
     def _on_die_delete(self, di: DieItem) -> None:
         if di in self._die_items:
@@ -1041,12 +1045,84 @@ class MainWindow(QMainWindow):
         """Log a single individual die roll (called via rolled signal)."""
         self._append_roll_log([die])
 
+    def _on_die_group_rolled(self, dice: list) -> None:
+        """Log a multi-die roll as a single line entry."""
+        self._append_roll_log(list(dice))
+
+    def _on_die_accent_apply_requested(self, payload) -> None:
+        """Apply a new accent (Color 1) to the selected dice."""
+        try:
+            dice, accent_hex, accent_name = payload
+        except Exception:
+            return
+        if not dice:
+            return
+
+        self._push_undo()
+
+        # Group by original dice set so we only create one derived set per set.
+        by_set: dict[str, list[DieItem]] = {}
+        for d in dice:
+            by_set.setdefault(d.set_name, []).append(d)
+
+        import uuid as _uuid
+        for old_set_name, dice_in_set in by_set.items():
+            orig = self._dice_manager.get_set(old_set_name)
+            die_types = {d.die_type for d in dice_in_set}
+
+            if orig is None:
+                colors = {dt: accent_hex for dt in die_types}
+                new_set_name = f"{old_set_name} (accent {accent_name}) {_uuid.uuid4().hex[:6]}"
+                new_ds = DiceSet(name=new_set_name, colors=colors, is_builtin=False)
+            else:
+                # Clone all per-die specs, overriding Color 1.
+                colors = {}
+                for dt, raw in orig.colors.items():
+                    if isinstance(raw, str):
+                        colors[dt] = accent_hex
+                    elif isinstance(raw, dict):
+                        spec = dict(raw)
+                        spec["color1"] = accent_hex
+                        colors[dt] = spec
+                    else:
+                        colors[dt] = accent_hex
+
+                # Ensure die types present on the canvas are always defined.
+                for dt in die_types:
+                    colors.setdefault(dt, accent_hex)
+
+                new_set_name = f"{orig.name} (accent {accent_name}) {_uuid.uuid4().hex[:6]}"
+                new_ds = DiceSet(name=new_set_name, colors=colors, is_builtin=False)
+
+            self._dice_manager.add_or_replace_set(new_ds)
+
+            for d in dice_in_set:
+                d.set_name = new_ds.name
+                d.update()
+
     def _append_roll_log(self, dice: list) -> None:
         """Build and store a roll log entry for the given dice (using _final_value)."""
         from datetime import datetime
         time_str = datetime.now().strftime("%H:%M:%S")
+
+        preset_map = {hx.lower(): nm for nm, hx in DieItem._accent_presets()}
+
+        def _die_color_name(d: DieItem) -> str:
+            ds = self._dice_manager.get_set(getattr(d, "set_name", ""))
+            if not ds:
+                return "Custom"
+            raw = ds.colors.get(d.die_type)
+            if raw is None:
+                raw = next(iter(ds.colors.values()), "#ffffff")
+            if isinstance(raw, str):
+                return preset_map.get(raw.lower(), "Custom")
+            if isinstance(raw, dict):
+                c1 = raw.get("color1", "#ffffff")
+                return preset_map.get(str(c1).lower(), "Custom")
+            return "Custom"
+
         dice_entries = [
-            {"type": d.die_type, "value": d._final_value}
+            {"type": d.die_type, "value": d._final_value, "color_name": _die_color_name(d)}
             for d in dice
         ]
         total = sum(e["value"] for e in dice_entries)
@@ -2075,6 +2151,7 @@ class MainWindow(QMainWindow):
                 elif dtype == "shape":
                     item = DrawingShapeItem.from_dict(dd)
                     item.delete_requested.connect(lambda i=item: self._remove_drawing_item(i))
+                    item.customize_requested.connect(self._on_drawing_customize_requested)
                     self._scene.addItem(item)
                     self._drawing_items.append(item)
             except Exception:
@@ -2558,6 +2635,10 @@ class MainWindow(QMainWindow):
 
     def _on_drawing_toggled(self, active: bool) -> None:
         if active:
+            # When using draw tool normally, dialog values apply to new drawings,
+            # not to existing selected shapes.
+            self._apply_draw_settings_to_selection = False
+            self._draw_customize_needs_undo = False
             self._cancel_active_measurement()
             self._view.measurement_active = False
             self._toolbar.set_active_tool("draw")
@@ -2579,6 +2660,8 @@ class MainWindow(QMainWindow):
             self._finalize_active_draw()
             self._close_draw_settings()
         elif tool == "draw":
+            self._apply_draw_settings_to_selection = False
+            self._draw_customize_needs_undo = False
             self._view.setCursor(Qt.CursorShape.CrossCursor)
             self._cancel_active_measurement()
             self._open_draw_settings()
@@ -2735,9 +2818,75 @@ class MainWindow(QMainWindow):
     def _close_draw_settings(self) -> None:
         if self._draw_settings_dlg is not None:
             self._draw_settings_dlg.hide()
+        self._apply_draw_settings_to_selection = False
+        self._draw_customize_needs_undo = False
 
     def _on_draw_settings_changed(self) -> None:
-        pass  # Live settings; no canvas update needed until next stroke/shape
+        if not getattr(self, "_apply_draw_settings_to_selection", False):
+            return
+
+        # Apply current dialog values to all selected shape drawings.
+        selected_shapes = [
+            i for i in self._scene.selectedItems()
+            if isinstance(i, DrawingShapeItem)
+        ]
+        if not selected_shapes:
+            return
+
+        # Push undo once, on first user edit after opening via context menu.
+        if getattr(self, "_draw_customize_needs_undo", False):
+            self._push_undo()
+            self._draw_customize_needs_undo = False
+
+        from PyQt6.QtGui import QColor
+
+        stroke_w = self._settings.drawing("stroke_width")
+        stroke_hex = self._settings.drawing("stroke_color")
+        fill_hex = self._settings.drawing("fill_color")
+        fill_op = self._settings.drawing("fill_opacity")  # 0..100
+
+        fill_alpha = int(fill_op * 255 / 100)
+
+        for sh in selected_shapes:
+            sh._stroke_width = stroke_w
+            sh._stroke_color = QColor(stroke_hex)
+            sh._fill_color = QColor(fill_hex)
+            sh._fill_color.setAlpha(fill_alpha)
+            sh.update()
+
+    def _on_drawing_customize_requested(self) -> None:
+        """Open DrawingSettingsDialog preloaded from selected shapes.
+
+        Changes in the dialog are applied live to the selected shapes.
+        """
+        selected_shapes = [
+            i for i in self._scene.selectedItems()
+            if isinstance(i, DrawingShapeItem)
+        ]
+        if not selected_shapes:
+            return
+
+        first = selected_shapes[0]
+
+        # Preload drawing settings from the first selected shape.
+        # (When multiple are selected, subsequent edits apply to all.)
+        fill_op = int(round(first._fill_color.alpha() * 100 / 255))
+        self._settings.set_drawing("stroke_width", first._stroke_width)
+        self._settings.set_drawing("stroke_color", first._stroke_color.name())
+        self._settings.set_drawing("fill_color", first._fill_color.name())
+        self._settings.set_drawing("fill_opacity", fill_op)
+        self._settings.save()
+
+        if self._draw_settings_dlg is None:
+            self._open_draw_settings()
+        else:
+            self._draw_settings_dlg.refresh_from_settings()
+            self._draw_settings_dlg.show()
+            self._draw_settings_dlg.raise_()
+
+        # Apply subsequent dialog edits to the selected shapes.
+        self._apply_draw_settings_to_selection = True
+        self._draw_customize_needs_undo = True
 
     def _on_draw_tool_changed(self, sub_tool: str) -> None:
         """Draw sub-tool button changed (freehand/circle/square/eraser)."""
@@ -2835,6 +2984,9 @@ class MainWindow(QMainWindow):
                 self._active_draw_shape.delete_requested.connect(
                     lambda i=self._active_draw_shape: self._remove_drawing_item(i)
                 )
+                self._active_draw_shape.customize_requested.connect(
+                    self._on_drawing_customize_requested
+                )
                 self._drawing_items.append(self._active_draw_shape)
             self._active_draw_shape = None
             self._draw_start_pos = None
@@ -2862,6 +3014,9 @@ class MainWindow(QMainWindow):
                 self._push_undo()
                 self._active_draw_shape.delete_requested.connect(
                     lambda i=self._active_draw_shape: self._remove_drawing_item(i)
+                )
+                self._active_draw_shape.customize_requested.connect(
+                    self._on_drawing_customize_requested
                 )
                 self._drawing_items.append(self._active_draw_shape)
             else:

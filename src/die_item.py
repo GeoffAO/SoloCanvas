@@ -45,6 +45,8 @@ class DieItem(QGraphicsObject):
     delete_selected_requested = pyqtSignal()        # delete all selected items
     duplicate_requested = pyqtSignal(object)        # self
     rolled              = pyqtSignal(object, int)   # self, final_value
+    accent_apply_requested = pyqtSignal(object)     # (list[DieItem], accent_hex, accent_name)
+    roll_group_requested   = pyqtSignal(object)     # list[DieItem]
 
     def __init__(
         self,
@@ -487,8 +489,18 @@ class DieItem(QGraphicsObject):
         multi = len(sel_dice) > 1
 
         roll_label = f"Roll ({len(sel_dice)})" if multi else "Roll"
-        menu.addAction(roll_label, lambda: [i.roll() for i in sel_dice])
-        if not multi:
+        if multi:
+            def _roll_group() -> None:
+                # Suppress individual roll logs; main window logs once.
+                for i in sel_dice:
+                    i._log_individual = False
+                for i in sel_dice:
+                    i.roll()
+                self.roll_group_requested.emit(sel_dice)
+
+            menu.addAction(roll_label, _roll_group)
+        else:
+            menu.addAction(roll_label, self.roll)
             menu.addAction("Reset", self.reset_value)
         menu.addSeparator()
         if not multi:
@@ -501,8 +513,71 @@ class DieItem(QGraphicsObject):
         menu.addAction(snap_label,    self._toggle_snap)
         menu.addAction(preview_label, self._toggle_hover_preview)
 
+        # Accent apply (color1 override) — applies to currently selected dice
+        accent_label = f"Accent… ({len(sel_dice)})" if multi else "Accent…"
+        accent_menu = menu.addMenu(accent_label)
+        for name, hex_val in self._accent_presets():
+            accent_menu.addAction(name, lambda _=False, h=hex_val, n=name: self._apply_accent_hex(sel_dice, h, n))
+        accent_menu.addSeparator()
+        accent_menu.addAction("Custom…", lambda _=False: self._request_accent_custom(sel_dice, parent))
+
         from PyQt6.QtGui import QCursor
         menu.exec(QCursor.pos())
+
+    @staticmethod
+    def _accent_presets() -> list[tuple[str, str]]:
+        """Named accent palette (hex values stored in dice sets)."""
+        return [
+            ("White", "#ffffff"),
+            ("Black", "#000000"),
+            ("Red", "#ef4444"),
+            ("Orange", "#f97316"),
+            ("Amber", "#f59e0b"),
+            ("Yellow", "#eab308"),
+            ("Lime", "#a3e635"),
+            ("Green", "#22c55e"),
+            ("Emerald", "#10b981"),
+            ("Teal", "#14b8a6"),
+            ("Cyan", "#06b6d4"),
+            ("Sky", "#0ea5e9"),
+            ("Blue", "#3b82f6"),
+            ("Indigo", "#6366f1"),
+            ("Violet", "#8b5cf6"),
+            ("Purple", "#a855f7"),
+            ("Fuchsia", "#d946ef"),
+            ("Pink", "#ec4899"),
+            ("Brown", "#a16207"),
+            ("Sand", "#d6bc8a"),
+        ]
+
+    def _apply_accent_hex(self, sel_dice: list["DieItem"], accent_hex: str, accent_name: str) -> None:
+        """Emit MainWindow request to apply the given accent to the selected dice."""
+        self.accent_apply_requested.emit((sel_dice, accent_hex, accent_name))
+
+    def _request_accent_custom(self, sel_dice: list["DieItem"], parent) -> None:
+        """Prompt for a custom accent color."""
+        from PyQt6.QtWidgets import QColorDialog
+
+        # Use the first dice's current color1 as the initial value.
+        first = sel_dice[0] if sel_dice else self
+        accent_hex = "#ffffff"
+        ds = self._manager.get_set(getattr(first, "set_name", "")) if self._manager else None
+        if ds:
+            raw = ds.colors.get(first.die_type) or next(iter(ds.colors.values()), "#ffffff")
+            if isinstance(raw, str):
+                accent_hex = raw
+            elif isinstance(raw, dict):
+                accent_hex = raw.get("color1", "#ffffff")
+
+        color = QColorDialog.getColor(
+            QColor(accent_hex),
+            parent,
+            "Custom Accent Color (Color 1)",
+        )
+        if not color.isValid():
+            return
+
+        self.accent_apply_requested.emit((sel_dice, color.name(), "Custom"))
 
     def _toggle_snap(self) -> None:
         new_val = not self.grid_snap
