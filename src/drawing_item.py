@@ -200,6 +200,7 @@ class DrawingShapeItem(QGraphicsObject):
     """
 
     delete_requested = pyqtSignal(object)
+    customize_requested = pyqtSignal()  # edit selected shapes via DrawingSettingsDialog
 
     def __init__(
         self,
@@ -234,6 +235,20 @@ class DrawingShapeItem(QGraphicsObject):
         extra = self._stroke_width / 2.0 + 1.0
         return self._rect.adjusted(-extra, -extra, extra, extra)
 
+    def shape(self) -> QPainterPath:
+        # Ensure right-click hit-testing (scene.itemAt) can find this item.
+        # Without an explicit shape(), some platforms default to an
+        # "empty" hit-test region for QGraphicsObject-derived items.
+        from PyQt6.QtGui import QPainterPath as _QPainterPath
+        path = _QPainterPath()
+        extra = self._stroke_width / 2.0 + 1.0
+        hit = self._rect.adjusted(-extra, -extra, extra, extra)
+        if self._shape == "circle":
+            path.addEllipse(hit)
+        else:
+            path.addRect(hit)
+        return path
+
     def paint(self, painter: QPainter, option, widget=None) -> None:
         pen = QPen(self._stroke_color, self._stroke_width)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -262,10 +277,33 @@ class DrawingShapeItem(QGraphicsObject):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
+        from PyQt6.QtGui import QCursor
         from PyQt6.QtWidgets import QMenu
-        menu = QMenu()
-        menu.addAction("Delete", lambda: self.delete_requested.emit(self))
-        menu.exec(event.screenPos().toPoint())
+
+        # Ensure right-clicked shape participates in selection.
+        if not self.isSelected():
+            if self.scene():
+                self.scene().clearSelection()
+            self.setSelected(True)
+
+        scene = self.scene()
+        sel_shapes = [i for i in scene.selectedItems() if isinstance(i, DrawingShapeItem)] if scene else [self]
+        if self not in sel_shapes:
+            sel_shapes = [self] + sel_shapes
+        multi = len(sel_shapes) > 1
+
+        views = scene.views() if scene else []
+        parent = views[0] if views else None
+
+        menu = QMenu(parent)
+
+        customize_label = f"Customize… ({len(sel_shapes)})" if multi else "Customize…"
+        menu.addAction(customize_label, self.customize_requested.emit)
+
+        del_label = f"Delete ({len(sel_shapes)})" if multi else "Delete"
+        menu.addAction(del_label, lambda: [sh.delete_requested.emit(sh) for sh in sel_shapes])
+
+        menu.exec(QCursor.pos())
 
     # ------------------------------------------------------------------
     # Z-order
